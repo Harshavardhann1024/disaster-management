@@ -1,7 +1,7 @@
-import { useParams, Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { getZone } from "../services/api";
 import RealTimeCharts from "../components/RealTimeCharts";
+import { getZone } from "../services/api";
 
 export default function ZoneDetails() {
   const { id } = useParams();
@@ -19,15 +19,12 @@ export default function ZoneDetails() {
   }, [id]);
 
   if (!data) {
-    return (
-      <div className="p-6 text-white">
-        Loading...
-      </div>
-    );
+    return <div className="p-6 text-white">Loading...</div>;
   }
 
   return (
     <div className="w-full px-6 py-6 space-y-6">
+
       <Link to="/" className="text-cyan-400">
         ← Back
       </Link>
@@ -37,7 +34,11 @@ export default function ZoneDetails() {
       </h1>
 
       {/* ===== FULL WIDTH CHARTS ===== */}
-      <RealTimeCharts history={data.history} />
+      <RealTimeCharts
+        assignments={data.history}
+        zone={data.zone}
+      />
+
     </div>
   );
 }

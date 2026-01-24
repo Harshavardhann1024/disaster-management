@@ -5,7 +5,7 @@ import ZoneDetails from "./pages/ZoneDetails";
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-black text-white">
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black text-white">
       <Navbar />
       <main className="px-6 py-6">
         <Routes>
