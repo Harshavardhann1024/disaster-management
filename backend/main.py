@@ -1,4 +1,7 @@
-import time, threading, random, base64, math
+import time
+import threading
+import random
+import base64
 from pathlib import Path
 
 import mysql.connector
@@ -39,24 +42,20 @@ app.add_middleware(
 )
 
 # =========================
-# DB UTILS
+# DB
 # =========================
 def get_db():
     return mysql.connector.connect(**DB)
 
 # =========================
-# YOLO INIT
+# YOLO
 # =========================
 print("🔄 Loading YOLO model...")
 yolo = YOLO(MODEL_PATH)
-print("✅ YOLO loaded successfully")
+print("✅ YOLO model loaded")
 
-# latest YOLO results per zone (for dashboard)
 yolo_cache = {}
 
-# =========================
-# IMAGE + DETECTION
-# =========================
 def pick_image(zone_id: int):
     folder = BASE_IMAGE_PATH / f"zone{zone_id}"
     if not folder.exists():
@@ -66,31 +65,28 @@ def pick_image(zone_id: int):
 
 def detect_people(image_path: Path):
     img = cv2.imread(str(image_path))
-    if img is None:
-        return 0, None
-
     results = yolo(img, conf=0.3, verbose=False)
 
-    people_count = 0
+    count = 0
     for r in results:
         for box in r.boxes:
             if int(box.cls[0]) == 0:  # person class
-                people_count += 1
+                count += 1
 
     annotated = results[0].plot()
-    _, buf = cv2.imencode(".jpg", annotated)
-    encoded = base64.b64encode(buf).decode()
+    _, buffer = cv2.imencode(".jpg", annotated)
+    encoded_img = base64.b64encode(buffer).decode()
 
-    return people_count, encoded
+    return count, encoded_img
 
 # =========================
 # RISK LOGIC
 # =========================
-def compute_risk(people: int, total_beds: int):
+def compute_risk(total_people: int, total_beds: int):
     if total_beds <= 0:
-        return 150.0, "Severe"
+        return 150, "Severe"
 
-    ratio = (people / total_beds) * 100
+    ratio = (total_people / total_beds) * 100
 
     if ratio >= 100:
         return ratio, "Severe"
@@ -102,7 +98,7 @@ def compute_risk(people: int, total_beds: int):
         return ratio, "Safe"
 
 # =========================
-# YOLO CORE LOOP
+# CORE YOLO LOOP
 # =========================
 def yolo_loop():
     print("🚀 YOLO detection loop started")
@@ -116,33 +112,41 @@ def yolo_loop():
 
         for zone in zones:
             zid = zone["id"]
+            zone_name = zone["name"]
 
             image = pick_image(zid)
             if not image:
                 continue
 
-            detected_people, img64 = detect_people(image)
+            # 🔍 Detect people in current image
+            people_now, img64 = detect_people(image)
 
-            # -------------------------------
-            # BED ALLOCATION
-            # -------------------------------
-            beds_to_allocate = min(detected_people, zone["available_beds"])
-            remaining = beds_to_allocate
+            # 🔁 CUMULATIVE PEOPLE COUNT
+            prev_people = zone["detected_people"] or 0
+            total_people = prev_people + people_now
+
+            # Safety cap (demo protection)
+            max_people = zone["total_beds"] * 2
+            total_people = min(total_people, max_people)
+
+            # 🛏️ Bed allocation
+            beds_to_allocate = min(people_now, zone["available_beds"])
 
             cur.execute("""
                 SELECT id, available_beds
                 FROM Shelters
-                WHERE zone_id=%s AND available_beds>0
+                WHERE zone_id=%s AND available_beds > 0
                 ORDER BY available_beds DESC
             """, (zid,))
             shelters = cur.fetchall()
 
+            remaining = beds_to_allocate
             for s in shelters:
                 if remaining <= 0:
                     break
                 take = min(s["available_beds"], remaining)
                 cur.execute(
-                    "UPDATE Shelters SET available_beds = available_beds - %s WHERE id=%s",
+                    "UPDATE Shelters SET available_beds = available_beds - %s WHERE id = %s",
                     (take, s["id"])
                 )
                 remaining -= take
@@ -153,17 +157,13 @@ def yolo_loop():
             """, (zid,))
             available_beds = cur.fetchone()["beds"] or 0
 
-            # -------------------------------
-            # RISK
-            # -------------------------------
+            # ⚠️ Risk calculation (FIXED)
             risk_score, risk_level = compute_risk(
-                detected_people,
+                total_people,
                 zone["total_beds"]
             )
 
-            # -------------------------------
-            # UPDATE ZONE
-            # -------------------------------
+            # 🧠 Update Zones table
             cur.execute("""
                 UPDATE Zones SET
                     detected_people=%s,
@@ -172,45 +172,41 @@ def yolo_loop():
                     risk_level=%s
                 WHERE id=%s
             """, (
-                detected_people,
+                total_people,
                 available_beds,
                 risk_score,
                 risk_level,
                 zid
             ))
 
-            # -------------------------------
-            # VOLUNTEER LOGIC (FIXED)
-            # 1 volunteer per 10 people
-            # -------------------------------
-            volunteers_needed = max(1, math.ceil(detected_people / 5))
+            # 🧍 Volunteer assignment (FIXED)
+            volunteers = max(1, total_people // 5)
 
             cur.execute("""
-                INSERT INTO Assignments
-                (zone_id, volunteers_assigned, beds_allocated)
-                VALUES (%s,%s,%s)
-            """, (zid, volunteers_needed, beds_to_allocate))
+                INSERT INTO Assignments (zone_id, volunteers_assigned, beds_allocated)
+                VALUES (%s, %s, %s)
+            """, (
+                zid,
+                volunteers,
+                beds_to_allocate
+            ))
 
-            # -------------------------------
-            # ALERTS
-            # -------------------------------
+            # 🚨 Alerts
             if risk_level != "Safe":
                 cur.execute("""
-                    INSERT INTO Alerts(zone_id, level, message)
-                    VALUES (%s,%s,%s)
+                    INSERT INTO Alerts (zone_id, level, message)
+                    VALUES (%s, %s, %s)
                 """, (
                     zid,
                     risk_level,
-                    f"{risk_level} risk detected in {zone['name']}"
+                    f"{risk_level} risk detected in {zone_name}"
                 ))
 
-            # -------------------------------
-            # YOLO CACHE (FRONTEND)
-            # -------------------------------
+            # 🖼️ Cache YOLO image for frontend
             yolo_cache[zid] = {
                 "zone_id": zid,
-                "zone_name": zone["name"],
-                "people_detected": detected_people,
+                "zone_name": zone_name,
+                "people": total_people,
                 "image": img64,
                 "timestamp": time.time()
             }
@@ -220,7 +216,7 @@ def yolo_loop():
         time.sleep(PROCESS_INTERVAL)
 
 # =========================
-# API ENDPOINTS
+# API ROUTES
 # =========================
 @app.get("/api/zones")
 def get_zones():
@@ -241,7 +237,8 @@ def get_zone(zone_id: int):
     zone = cur.fetchone()
 
     cur.execute("""
-        SELECT * FROM Assignments
+        SELECT *
+        FROM Assignments
         WHERE zone_id=%s
         ORDER BY created_at DESC
         LIMIT 30
@@ -250,11 +247,7 @@ def get_zone(zone_id: int):
 
     cur.close()
     conn.close()
-
-    return {
-        "zone": zone,
-        "history": history
-    }
+    return {"zone": zone, "history": history}
 
 @app.get("/api/alerts")
 def get_alerts():
@@ -263,7 +256,7 @@ def get_alerts():
     cur.execute("""
         SELECT a.*, z.name AS zone_name
         FROM Alerts a
-        JOIN Zones z ON z.id=a.zone_id
+        JOIN Zones z ON z.id = a.zone_id
         ORDER BY created_at DESC
         LIMIT 10
     """)
@@ -284,4 +277,4 @@ def startup():
     threading.Thread(target=yolo_loop, daemon=True).start()
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

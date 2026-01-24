@@ -11,3 +11,27 @@ html, body, #root {
 * {
   transition: background-color .25s ease, border-color .25s ease;
 }
+
+/* ===== Global Dashboard Background ===== */
+body {
+  background-image:
+    radial-gradient(circle at top, rgba(56,189,248,0.18), transparent 45%),
+    radial-gradient(circle at bottom, rgba(168,85,247,0.18), transparent 45%),
+    url("/darkglob.png"); /* ✅ MUST be relative to public */
+
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-attachment: fixed;
+
+  color: #e5e7eb;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Glass effect */
+.glass {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.08);
+}
