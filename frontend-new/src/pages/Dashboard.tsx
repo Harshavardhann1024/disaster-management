@@ -1,21 +1,33 @@
 import { useEffect, useState } from "react";
-import { getZones, getAlerts } from "../services/api";
+import { getZones, getAlerts, getMedicalAlerts } from "../services/api";
 import ZoneCard from "../components/ZoneCard";
 import YoloImagePanel from "../components/YoloImagePanel";
+import PredictionsPanel from "../components/PredictionsPanel";
+import MedicalAlertsPanel from "../components/MedicalAlertsPanel";
+import AlertPanel from "../components/AlertPanel";
 
 export default function Dashboard() {
   const [zones, setZones] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
+  const [medicalAlerts, setMedicalAlerts] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
+        setError(null);
         const z = await getZones();
         const a = await getAlerts();
-        setZones(z);
-        setAlerts(a);
+        const m = await getMedicalAlerts();
+        setZones(z || []);
+        setAlerts(a || []);
+        setMedicalAlerts(m || []);
+        setIsLoading(false);
       } catch (err) {
         console.error("Dashboard fetch error", err);
+        setError("Failed to load dashboard data");
+        setIsLoading(false);
       }
     };
 
@@ -35,50 +47,71 @@ export default function Dashboard() {
     0
   );
 
+  const systemStatus = alerts.length > 0 ? "ALERT" : "SECURE";
+
   return (
     <div className="space-y-8">
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+            <p className="mt-4 text-slate-400">Loading EcoRescue dashboard...</p>
+          </div>
+        </div>
+      )}
 
-      {/* ================= TOP STATS ================= */}
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Stat title="People Detected" value={totalPeople} />
-        <Stat title="Beds Available" value={totalBeds} />
-        <Stat title="Active Zones" value={zones.length} />
-        <Stat
-          title="System Status"
-          value={alerts.length > 0 ? "ALERT" : "SECURE"}
-          accent
-        />
-      </section>
+      {error && (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-6 text-red-400">
+          <p>⚠️ {error}</p>
+          <p className="text-sm mt-2">Make sure the backend is running on http://localhost:8000</p>
+        </div>
+      )}
 
-      {/* ================= ZONES + YOLO ================= */}
-      <section className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-        {/* ZONE CARDS */}
-        {zones.map((z) => (
-          <ZoneCard key={z.id} zone={z} />
-        ))}
+      {!isLoading && !error && (
+        <>
+          {/* ================= TOP STATS BAR ================= */}
+          <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <Stat title="People Detected" value={totalPeople} />
+            <Stat title="Beds Available" value={totalBeds} />
+            <Stat title="Active Zones" value={zones.length} />
+            <Stat
+              title="System Status"
+              value={systemStatus}
+              accent={systemStatus === "ALERT"}
+            />
+          </section>
 
-        {/* YOLO PANEL */}
-        <YoloImagePanel />
-      </section>
+          {/* ================= ZONE CARDS ================= */}
+          <section>
+            <h2 className="text-lg font-semibold text-slate-300 mb-4">📍 Zone Monitoring</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+              {zones.map((z) => (
+                <ZoneCard key={z.id} zone={z} />
+              ))}
+            </div>
+          </section>
 
-      {/* ================= ALERTS ================= */}
-      <section className="rounded-xl border border-red-500/40 bg-red-500/10 p-6">
-        <h3 className="text-xl font-bold text-red-400">🔥 Alerts</h3>
+          {/* ================= YOLO PANEL ================= */}
+          <section>
+            <YoloImagePanel />
+          </section>
 
-        {alerts.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-400">
-            No active alerts
-          </p>
-        ) : (
-          <ul className="mt-3 space-y-2 text-sm">
-            {alerts.map((a) => (
-              <li key={a.id} className="text-red-300">
-                <b>{a.zone_name}</b>: {a.message}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          {/* ================= MEDICAL ALERTS ================= */}
+          <section>
+            <MedicalAlertsPanel alerts={medicalAlerts} />
+          </section>
+
+          {/* ================= LSTM PREDICTIONS ================= */}
+          <section>
+            <PredictionsPanel zones={zones} />
+          </section>
+
+          {/* ================= ALERTS PANEL ================= */}
+          <section>
+            <AlertPanel alerts={alerts} />
+          </section>
+        </>
+      )}
     </div>
   );
 }
@@ -96,14 +129,13 @@ function Stat({
 }) {
   return (
     <div
-      className={`rounded-xl p-6 border ${
-        accent
+      className={`rounded-xl p-6 border ${accent
           ? "border-red-400/40 bg-red-500/10"
           : "border-slate-700 bg-slate-900/70"
-      }`}
+        }`}
     >
       <p className="text-sm uppercase text-slate-400">{title}</p>
-      <p className="mt-2 text-4xl font-bold text-emerald-400">
+      <p className={`mt-2 text-4xl font-bold ${accent ? "text-red-400" : "text-emerald-400"}`}>
         {value}
       </p>
     </div>

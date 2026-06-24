@@ -5,8 +5,12 @@ export default function YoloImagePanel() {
 
   useEffect(() => {
     const load = async () => {
-      const res = await fetch("http://localhost:8000/api/yolo-images");
-      setImages(await res.json());
+      try {
+        const res = await fetch("http://localhost:8000/api/yolo-images");
+        if (res.ok) setImages(await res.json());
+      } catch {
+        // backend offline — silently skip
+      }
     };
 
     load();
